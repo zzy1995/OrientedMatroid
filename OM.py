@@ -2,12 +2,15 @@ import itertools
 import numpy as np
 import networkx as nx
 from math import factorial
+from math import floor
+from math import ceil
 from networkx.algorithms.distance_measures import diameter
 import sys
 import matplotlib.pyplot as plt
 from scipy.linalg import null_space
+import time
 
-EPS = np.finfo(np.float).eps
+#EPS = np.finfo(np.float).eps
 Todd_hyperplane = np.array([[6, 3, 0, -1, -1],
 							[3, 6, -1, 0, -1],
 							[35, 45, -6, -3, -8],
@@ -147,6 +150,18 @@ def gen_bin_comb(n):
 		else:
 			return
 		yield l
+
+
+def find_subtope_graph(G, vertices, tope):
+	non_negatives = []
+	for i in range(len(vertices)):
+		v = vertices[i]
+		if (v * tope >= 0).all() :
+			non_negatives.append(i)
+	if len(non_negatives) > 0:
+		H = G.subgraph(non_negatives)
+		return H
+
 
 def check_tope(string, n, r):
 	f = chirotope(n, r, string)
@@ -313,17 +328,15 @@ def check95():
 		if counts % 100 == 0:
 			print("Now processing line " + str(counts))
 
-# check if a graph's shortest paths are all crabbed
-def check_crabbed(string, n, r):
-	f = chirotope(n, r, string)
-	vertices = cocircuits(n, r, f)
-	G = make_graph(n, r, vertices)
+
+def check_crabbed_graph(G, vertices, n, r):
 	num_nodes = nx.number_of_nodes(G)
 	for i in range(num_nodes):
 		for j in range(i + 1, num_nodes):
-			x = vertices[i]
-			y = vertices[j]
-			check_indices = np.where((x * y) >= 0)[0]
+			x = np.copy(vertices[i])
+			y = np.copy(vertices[j])
+			if -1 in x * y:
+				continue
 			is_crabbed = False
 			all_paths = nx.all_shortest_paths(G, source = i, target = j)
 			for p in all_paths:
@@ -333,17 +346,94 @@ def check_crabbed(string, n, r):
 					if counter == len(p) - 1:
 						is_crabbed = True
 					else:
-						new1 = x[check_indices] * vertices[p[counter]][check_indices]
-						new2 = y[check_indices] * vertices[p[counter]][check_indices]
+						new1 = x * vertices[p[counter]]
+						new2 = y * vertices[p[counter]]
 						if ((-1) in new1) or ((-1) in new2):
 							break
+						undetermined_indices = np.logical_and(np.logical_and(x == 0, y == 0), vertices[p[counter]] != 0)
+						x[undetermined_indices] = vertices[p[counter]][undetermined_indices]
+						#print(x, y)
 			if not is_crabbed:
 				print("conjecture is wrong for")
-				print(string)
-				print(i, j)
+				print(vertices[i], vertices[j], i, j)
 				return False
 	return True
 
+# check if a graph's shortest paths are on the tope
+def check_crabbed(string, n, r):
+	f = chirotope(n, r, string)
+	vertices = cocircuits(n, r, f)
+	G = make_graph(n, r, vertices)
+	return check_crabbed_graph(G, vertices, n, r)
+
+
+def check_crabbed_new(string, n, r):
+	f = chirotope(n, r, string)
+	vertices = cocircuits(n, r, f)
+	G = make_graph(n, r, vertices)
+	num_nodes = nx.number_of_nodes(G)
+	for i in range(num_nodes):
+		for j in range(i + 1, num_nodes):
+			x = vertices[i]
+			y = vertices[j]
+			if -1 in x * y:
+				continue
+			pos = np.where(np.logical_or(x == 1, y == 1))[0]
+			neg = np.where(np.logical_or(x == -1, y == -1))[0]
+			is_crabbed = False
+			all_paths = nx.all_shortest_paths(G, source = i, target = j)
+			for p in all_paths:
+				if is_crabbed:
+					break
+				for counter in range(1, len(p)):
+					if counter == len(p) - 1:
+						is_crabbed = True
+					else:
+						found = False
+						for ix, item in enumerate(vertices[p[counter]]):
+							if item == -1 and ix not in neg:
+								found = True
+								break
+							if item == 1 and ix not in pos:
+								found = True
+								break
+						if found:
+							break
+			if not is_crabbed:
+				print("conjecture is wrong for")
+				print(string, vertices[i], vertices[j], i, j)
+				return False
+	return True
+
+# check 1.9
+def check_tope_file(filename, n, r, start = 0):
+	with open(filename) as f:
+		content = f.read().splitlines()
+	for ix, items in enumerate(content[start:]):
+		if "0" in items:
+			print("non-uniform cases now")
+			break
+		if ix % 100 == 0:
+			print(ix, items)
+		if not check_crabbed(items, n, r):
+			print("counter examples here")
+			print(items)
+			break
+
+# checks 5.3
+def check_crabbed_file(filename, n, r, start = 0):
+	with open(filename) as f:
+		content = f.read().splitlines()
+	for ix, items in enumerate(content[start:]):
+		if "0" in items:
+			print("non-uniform cases now")
+			break
+		if ix % 100 == 0:
+			print(ix, items)
+		if not check_crabbed_new(items, n, r):
+			print("counter examples here")
+			print(items)
+			break
 
 
 def check_antipodal(string, n, r):
@@ -455,12 +545,101 @@ def cocircuits_from_arrangement(A, n, r):
 		v[np.abs(v) < 1e-6] = 0
 		if np.count_nonzero(v) != n - r + 1:
 			print(item)
-			raise Exception("Error in number of zeros")
+			#raise Exception("Error in number of zeros")
 		new = np.sign(v)
 		cocircuits.append(new)
 		cocircuits.append(-new)
 	return cocircuits
 
+
+"""
+clam shell
+0: -8 x1 - 16 x2 - 9 x3 >= -160
+1: -56 x1 + 112 x2 - 39 x3 >= -672
+2: 56 x1 - 112 x2 - 39 x3 >= -448
+3: 8 x1 + 16 x2 - 9 x3 >= 0
+4: -2 x2 - x3 >= -12
+5: 280 x1 - 31 x3 >= 0
+6: x3 >= 0
+7: 2 x2 - x3 >= -4
+8: -280 x1 - 31 x3 >= -3360
+9:  x1 + 2x2 + 100x3 <= 300
+
+"""
+clamShell_hyperplane = np.array([[-1, -1.99, -9/8, 20],
+	[-1, 2, -39/56, 672/56], [1, -2, -39/56, 448/56],
+	[1, 2, -9/8, 0], [0, -2, -1, 12], [280/31, 0, -1, 0],
+	[0, 0, 1, 0], [0, 2, -1, 4], [-1, 0, -31/280, 3360/280],
+	[1/100, 2/100, 1, -3]])
+
+
+def finschi_bound(n, r):
+	sum = 0
+	for k in range(1, min(r - 2, n - r) + 1):
+		sum += 1 + floor((n - r - k) / 2)
+	sum += n - r + 2
+	return max(sum, n - r + 2)
+
+def improved_finschi(n, r):
+	sum = 0
+	for k in range(2, min(r - 2, n - r) + 1):
+		sum += 1 + floor((n - r - k) / 2)
+	sum += n - r + 2
+	return sum
+
+def finschi_bound2(n, r):
+	if (n - r) <= (r - 2):
+		if (n - r) % 2 == 0:
+			return (2 * (n - r + 1) + (n - r - 1) ** 2 / 4 - 1 / 4)
+		else:
+			return (2 * (n - r + 1) + (n - r - 1) ** 2 / 4)
+	if (n - r) >= (r - 2):
+		if r % 2 == 0:
+			return (n + (r - 2) * (n - 1.5 * r) / 2)
+		else:
+			if n % 2 == 0:
+				return (n + (r - 2) * (n - 1.5 * r) / 2 + 1 / 4)
+			else:
+				return (n + (r - 2) * (n - 1.5 * r) / 2 - 1 / 4)
+
+def finschi_bound3(n, r):
+	m = min(r - 2, n - r)
+	if m % 2 == 0:
+		return (n - r + 2 + m * (n - r) / 2 - m * (m + 2) / 4 + m)
+	else:
+		return (n - r + 2 + (m - 1) * (n - r) / 2 - (m - 1) * (m + 1) / 4 + m + floor((n - r - m) / 2))
+
+def ilan_bound(n, r):
+	dist = ceil(min(r - 1, n - r + 1) / 2) * (n - r + 1)
+	return max(dist, n - r + 2)
+
+def ilan_bound2(n, r):
+	m = min(r - 2, n - r)
+	if m % 2 == 0:
+		return ((m / 2 + 1) * (n - r + 1))
+	else:
+		return (m + 1) * (n - r + 1) / 2
+
+def bound_difference(n, r):
+	m = min(r - 2, n - r)
+	if m % 2 == 0:
+		return 1 - m ** 2 / 4
+	else:
+		return 2 - (m + 1) ** 2 / 4 + m + floor((n - r - m) / 2)
+
+def compute_comparison(n):
+	results = np.empty([n + 2, n + 2], dtype = object)
+	for i in range(2, 2 + n):
+		for j in range(i, 2 + n):
+			finschi = finschi_bound(j, i)
+			ilan = ilan_bound(j, i)
+			if finschi == ilan:
+				results[i][j] = "equal"
+			elif finschi > ilan:
+				results[i][j] = "Ilan"
+			else:
+				results[i][j] = "Finschi"
+	return results
 
 def main():
 	if len(sys.argv) == 1:
@@ -475,10 +654,15 @@ def main():
 		content = f.read().splitlines()
 	if len(content[0]) != factorial(n) // factorial(r) // factorial(n - r):
 		raise Exception("n choose r is not equal to number of chirotopes!")
+	start_time = time.time()
+	count = 0
 	for items in content:
-		print(items)
+		#print(items)
+		if count % 100 == 0:
+			print(count, time.time() - start_time)
 		d = find_diameter(items, n, r)
 		mainfile.write(items + ":"+str(d)+"\n")
+		count += 1
 		if d < n - r + 2:
 			file_small.write(items+":"+str(d)+"\n")
 		if d > n -r + 2:
